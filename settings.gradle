@@ -1,0 +1,12 @@
+include 'kor'
+include 'kormetals'
+
+rootProject.name = 'master'
+rootProject.children.each { project ->
+	String fileBaseName = project.name
+	String projectDirName = "subprojects/$fileBaseName"
+	project.projectDir = new File(settingsDir, projectDirName)
+	project.buildFileName = "build.gradle"
+	assert project.projectDir.isDirectory()
+	assert project.buildFile.isFile()
+}

@@ -1,0 +1,288 @@
+#!/bin/bash
+
+source project.config
+source import.common
+
+repos=( "${MASTER_REPO}" "${LOCAL_REPOS[@]}" )
+file="${PROJECT_VERSION_FILE}"
+com=""
+val=""
+link=""
+bake=false
+push=true
+all=false
+
+usage() {
+	echo "usage: version [get|set <version>] [--all] [--bake] [--file=<filename>] [--help] [--no-push]"
+	echo ""
+	echo "  Commands:"
+	echo "    get                displays the project version"
+	echo "    set <version>      sets the project version"
+	echo ""
+	echo "  Options:"
+	echo "    --all              get version for all projects (only use with 'get')"
+	echo "    --bake             generate a bakefile (only use with 'set' on project master)"
+	echo "    --file=<filename>  specify version file, default=project.version"
+	echo "    --help             display usage"
+	echo "    --no-push          suppress push at each phase"
+}
+
+verbose() { 
+	if $verbose; then
+		echo "$@"
+	fi
+}
+
+assertExitCode() {
+	if [ $? -ne 0 ]; then
+		echo "    [!!] Aborting on non-zero exit code."
+		exit $?
+	fi
+}
+
+assertBranch() {
+	local branch="$1"
+	if [[ `git rev-parse --abbrev-ref HEAD` == "${branch}" ]]; then
+		echo "   [OK] On branch ${branch}"
+	else
+		echo "   [!!] The subproject is on the wrong branch."
+		die "        Versioning should only be done on the [${branch}] branch."
+	fi
+}
+
+displayVerify() {
+	printf "   %-16s %-29s %-29s\n" "$1" "$2" "$3"
+}
+
+apply() {
+	local link="$1"
+	if ! containsElement "${link}" "${repos[@]}"; then
+		die "Invalid project reference: [${link}]"
+	fi
+
+	local dirname="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+	PATH="${PATH}:${dirname}"
+
+	local repoPath=""
+	if [[ "${link}" == "${MASTER_REPO}" ]]; then
+		bake=true
+		repoPath="."
+	else	
+		repoPath="${SUBPROJECT_PATH}/${link}"
+	fi
+
+	pushd "${repoPath}"
+	if [[ "${com}" == "get" ]]; then
+		version get --file="${file}"
+
+	elif [[ "${com}" == "set" ]]; then
+		if $bake; then
+			if $push; then
+				version set "${val}" --bake --file="${file}"
+			else
+				version set "${val}" --bake --file="${file}" --no-push
+			fi
+		else
+			if $push; then
+				version set "${val}" --file="${file}"
+			else
+				version set "${val}" --file="${file}" --no-push
+			fi
+		fi
+	fi
+	popd
+}
+
+if [[ "$1" == "--help" ]]; then
+	usage
+	exit 0
+fi
+
+if [[ "$1" == :* ]]; then
+	link="${1:1}"
+	shift 1
+fi
+
+if [[ "$#" -eq 0 || "$1" == "get" || "$1" == "--all" ]]; then
+	com="get"
+	if [[ "$1" == "--all" ]]; then
+		all=true
+	fi
+	shift 1
+
+elif [[ "$1" == "set" ]]; then
+	com="set"
+	val="$2"
+	shift 2
+
+else
+	die "Unknown command: [$1]"
+fi		
+
+while [[ $# > 0 ]]; do
+	key="$1"
+	case $key in
+		--all)
+			all=true
+			shift 1
+			;;
+		--bake)
+			bake=true
+			shift 1
+			;;
+		--file=*)
+			file="${key#*=}"
+			shift 1
+			;;
+		--help)
+			usage
+			exit 0
+			;;
+		--no-push)
+			push=false
+			shift 1
+			;;
+		*)
+			die "Unknown command: [${key}]"
+	esac
+done
+
+if [[ ! -z "${link}" ]]; then
+	apply "${link}"
+	exit "$?"
+
+elif $all; then
+	if [[ ! "${com}" == "get" ]]; then
+		die "   [!!] Option --all can only be used with 'get' command"
+	fi
+	for repo in "${repos[@]}"; do
+		header "${repo}"
+		apply "${repo}"
+	done
+	exit "$?"
+fi
+
+if [[ "${com}" == "get" ]]; then
+	if [[ -f "${file}" ]]; then
+		fileContents=`cat "${file}"`
+	else
+		fileContents="0.0.0"
+	fi
+	displayVerify "[--] Tag:" `git describe --tags`
+	displayVerify "[--] File:" "${fileContents}"
+
+elif [[ "${com}" == "set" ]]; then
+	header "Branch Validation"
+	assertBranch "develop"
+	header "Verification"
+
+	if [[ -f "${file}" ]]; then
+		fileContents=`cat "${file}"`
+	else
+		fileContents="0.0.0"
+	fi
+
+	echo ""
+	displayVerify "" "Old" "New"
+	displayVerify "" "-----------------------------" "-----------------------------"
+	displayVerify "[--] Tag:" `git describe --tags` "${val}"
+	displayVerify "[--] File:" `cat "${file}"` "${val}"
+
+	if $bake; then
+		echo ""
+		echo "   [--] Bake:"
+		for (( i = 0; i < ${#REMOTE_REPOS[@]}; ++i )); do
+			pushd "${SUBPROJECT_PATH}/${LOCAL_REPOS[i]}"
+			commit=`git rev-parse --short HEAD`
+			branch=`git rev-parse --abbrev-ref HEAD`
+			version=`git describe --tags`
+			if [[ "${branch}" == "master" ]]; then
+				printf "          [OK] %-12s %-12s %-12s %-16s\n" "${LOCAL_REPOS[i]}" "${branch}" "${commit}" "${version}"
+			else
+				printf "          [!!] %-12s %-12s %-12s %-16s\n" "${LOCAL_REPOS[i]}" "${branch}" "${commit}" "${version}"
+				echo ""
+				die "   [!!] Project [${LOCAL_REPOS[i]}] on branch [${branch}] needs to be on the [master] branch."
+			fi
+			popd
+		done
+	fi
+	echo ""
+	echo "   [--] File:"
+	echo "          git add ${file}"
+	echo "          git commit -m \"bumped version to ${val}\""
+	$push && echo "          git push"
+	echo ""
+	echo "   [--] Primary Merge:"
+	echo "          git checkout master"
+	echo "          git merge --no-ff develop"
+	$push && echo "          git push"
+	echo ""
+	echo "   [--] Tag Version:"
+	echo "          git tag -a ${val} -m \"version ${val}\""
+	$push && echo "          git push origin refs/tags/${val}"
+	echo ""
+	echo "   [--] Secondary Merge:"
+	echo "          git checkout develop"
+	echo "          git merge master"
+	$push && echo "          git push"
+	echo ""
+
+	read -p "   [??] Does this look right to you [y/N]? " -n 1 -r
+	echo ""
+	case $REPLY in
+		y)
+			echo "   [OK] Process validated by user"
+			;;
+		*)
+			echo "   [!!] Process halted by user"
+			exit 1
+	esac
+
+	header "Write File"
+	echo "${val}" > "${file}"
+	result=`cat "${file}"`
+	if [[ ! "${result}" == "${val}" ]]; then
+		die "   [!!] Unable to write [${val}] to [${file}]"
+	else
+		echo "   [OK] [${result}] saved to [${file}]"
+	fi
+
+	header "File"
+	git add "${file}"
+	assertExitCode
+	git commit -m "bumped version to ${val}"
+	assertExitCode
+	git push
+	assertExitCode
+
+	header "Primary Merge 'develop' >> 'master'"
+	git checkout master
+	assertExitCode
+	git merge --no-ff develop
+	assertExitCode
+	git push
+	assertExitCode
+
+	header "Tag Version"
+	git tag -a "${val}" -m "version ${val}"
+	assertExitCode
+	git push origin refs/tags/"${val}"
+	assertExitCode
+
+	header "Secondary Merge 'master' >> 'develop'"
+	git checkout develop
+	assertExitCode
+	git merge master
+	assertExitCode
+	git push
+	assertExitCode
+fi
+
+# Extra:
+#
+# Lists and counts all revisions.
+# revision=`git rev-list HEAD | wc -l | tr -d " "`
+#
+# Lists and counts all revisions since last tag.
+# tag=`git describe --tags --abbrev=0`
+# revision=`git log "${tag}"..HEAD --oneline | wc -l | tr -d " "`

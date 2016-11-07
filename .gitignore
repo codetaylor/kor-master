@@ -1,0 +1,16 @@
+.backup
+.gits/bin/
+
+.gradle/
+
+!.idea/modules/*
+
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/libraries/Gradle_*.xml
+
+build/
+ide-build/
+subprojects/
+
+gits
