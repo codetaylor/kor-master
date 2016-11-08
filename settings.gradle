@@ -1,5 +1,5 @@
-include 'kor'
-include 'kormetals'
+include 'kor-lib'
+include 'kor-metals'
 
 rootProject.name = 'master'
 rootProject.children.each { project ->
