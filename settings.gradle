@@ -1,5 +1,6 @@
 include 'kor-lib'
 include 'kor-metals'
+include 'kor-mortar'
 
 rootProject.name = 'master'
 rootProject.children.each { project ->
