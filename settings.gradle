@@ -1,6 +1,8 @@
 include 'kor-lib'
 include 'kor-metals'
 include 'kor-mortar'
+include 'kor-irrigationpump'
+include 'kor-watercan'
 
 rootProject.name = 'master'
 rootProject.children.each { project ->
