@@ -1,7 +1,11 @@
+include 'kor-frostcore'
+include 'kor-irrigationpump'
 include 'kor-lib'
 include 'kor-metals'
+include 'kor-meteor'
 include 'kor-mortar'
-include 'kor-irrigationpump'
+include 'kor-noplace'
+include 'kor-subnauticraft'
 include 'kor-watercan'
 
 rootProject.name = 'master'
